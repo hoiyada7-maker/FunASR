@@ -20,6 +20,8 @@ datas, binaries, hiddenimports = [], [], []
 for pkg in [
     "funasr",
     "torchaudio",
+    "hydra",
+    "omegaconf",
     "streaming_sensevoice",
     "asr_decoder",
     "online_fbank",

@@ -29,7 +29,7 @@ jobs:
           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install -e .
           pip install PyQt6 pyaudiowpatch soxr librosa modelscope jieba `
-                      asr-decoder online-fbank pyinstaller
+                      asr-decoder online-fbank hydra-core omegaconf pyinstaller
 
       - name: Fetch streaming-sensevoice
         run: |
