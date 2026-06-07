@@ -19,6 +19,7 @@ if _SSV not in sys.path:
 datas, binaries, hiddenimports = [], [], []
 for pkg in [
     "funasr",
+    "torchaudio",
     "streaming_sensevoice",
     "asr_decoder",
     "online_fbank",
