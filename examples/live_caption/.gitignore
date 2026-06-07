@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+# 서드파티(streaming-sensevoice)는 별도 clone — README 참고
+third_party_ssv/

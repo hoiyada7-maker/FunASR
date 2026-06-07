@@ -1,0 +1,60 @@
+name: Build Live Caption EXE
+
+# livecaption-v* 태그를 푸시하면 Windows exe 를 빌드해 릴리스로 올린다.
+on:
+  push:
+    tags:
+      - "livecaption-v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+          pip install PyQt6 pyaudiowpatch soxr librosa modelscope jieba `
+                      asr-decoder online-fbank pyinstaller
+
+      - name: Fetch streaming-sensevoice
+        run: |
+          git clone --depth 1 https://github.com/pengzhendong/streaming-sensevoice.git `
+            examples/live_caption/third_party_ssv
+
+      - name: Build EXE (PyInstaller)
+        working-directory: examples/live_caption
+        run: pyinstaller --noconfirm LiveCaption.spec
+
+      - name: Package zip
+        working-directory: examples/live_caption
+        run: |
+          Compress-Archive -Path dist/LiveCaption/* `
+            -DestinationPath LiveCaption-windows.zip -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveCaption-windows
+          path: examples/live_caption/LiveCaption-windows.zip
+
+      - name: Create / update Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: examples/live_caption/LiveCaption-windows.zip
+          generate_release_notes: true
