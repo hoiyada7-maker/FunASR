@@ -14,8 +14,8 @@ TARGET_RATE = 16000
 
 def _clean_name(name: str) -> str:
     """Windows 한글 장치명이 깨져 들어오는 경우를 위한 best-effort 정리."""
-    if "�" in name:  # U+FFFD (디코딩 실패 문자) 가 섞이면 복구 불가
-        return name.replace("�", "")
+    if "?" in name:
+        return name.replace("?", "")
     return name
 
 
@@ -94,32 +94,84 @@ class AudioSource:
         self.on_audio = on_audio
         self._p = pyaudio.PyAudio()
         info = self._p.get_device_info_by_index(device_index)
-        self.channels = int(info["maxInputChannels"])
+
+        # 루프백 장치 여부 판별
+        loopback_indices = set()
+        try:
+            for lb in self._p.get_loopback_device_info_generator():
+                loopback_indices.add(lb["index"])
+        except Exception:
+            pass
+        is_loopback = device_index in loopback_indices
+
+        # 루프백: 장치 네이티브 채널 수 사용 / 마이크: 모노 강제(안정적)
+        self.channels = int(info["maxInputChannels"]) if is_loopback else 1
         self.native_rate = int(info["defaultSampleRate"])
+
         self._resampler = (
             soxr.ResampleStream(self.native_rate, TARGET_RATE, 1, dtype="float32")
             if self.native_rate != TARGET_RATE
             else None
         )
+
         frames = max(1, int(self.native_rate * chunk_ms / 1000))
-        self._stream = self._p.open(
-            format=pyaudio.paInt16,
-            channels=self.channels,
-            rate=self.native_rate,
-            input=True,
-            input_device_index=device_index,
-            frames_per_buffer=frames,
-            stream_callback=self._callback,
-            start=False,
+
+        kind_str = "루프백(시스템 소리)" if is_loopback else "마이크"
+        print(
+            f"[오디오] {kind_str} | 채널:{self.channels} | {self.native_rate}Hz",
+            flush=True,
         )
 
+        # WASAPI 마이크는 Float32 가 네이티브인 경우가 많음 → Float32 우선 시도
+        self._use_float32 = False
+        opened = False
+        for fmt in (pyaudio.paFloat32, pyaudio.paInt16):
+            try:
+                self._stream = self._p.open(
+                    format=fmt,
+                    channels=self.channels,
+                    rate=self.native_rate,
+                    input=True,
+                    input_device_index=device_index,
+                    frames_per_buffer=frames,
+                    stream_callback=self._callback,
+                    start=False,
+                )
+                self._use_float32 = fmt == pyaudio.paFloat32
+                print(
+                    f"[오디오] 형식: {'Float32' if self._use_float32 else 'Int16'}",
+                    flush=True,
+                )
+                opened = True
+                break
+            except Exception as e:
+                print(f"[오디오] {'Float32' if fmt == pyaudio.paFloat32 else 'Int16'} 실패: {e}", flush=True)
+
+        if not opened:
+            raise RuntimeError(f"오디오 스트림을 열 수 없습니다 (device_index={device_index})")
+
+        self._first_chunk = True
+
     def _callback(self, in_data, frame_count, time_info, status):
-        audio = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
-        if self.channels > 1:
-            audio = audio.reshape(-1, self.channels).mean(axis=1)
-        if self._resampler is not None:
-            audio = self._resampler.resample_chunk(audio)
+        # 오디오 디코딩/리샘플링 — 실패 시 이번 청크만 스킵
+        try:
+            if self._use_float32:
+                audio = np.frombuffer(in_data, dtype=np.float32).copy()
+            else:
+                audio = np.frombuffer(in_data, dtype=np.int16).astype(np.float32) / 32768.0
+            if self.channels > 1:
+                audio = audio.reshape(-1, self.channels).mean(axis=1)
+            if self._resampler is not None:
+                audio = self._resampler.resample_chunk(audio)
+        except Exception as e:
+            print(f"[audio] decode error: {e}", flush=True)
+            return (None, pyaudio.paContinue)
+
         if audio.size:
+            if self._first_chunk:
+                self._first_chunk = False
+                rms = float(np.sqrt(np.mean(audio ** 2)))
+                print(f"[audio] first chunk ok  RMS={rms:.5f}", flush=True)
             self.on_audio(audio)
         return (None, pyaudio.paContinue)
 
