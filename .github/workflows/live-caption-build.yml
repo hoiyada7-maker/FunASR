@@ -1,10 +1,10 @@
 name: Build Live Caption EXE
 
-# livecaption-v* 태그를 푸시하면 Windows exe 를 빌드해 릴리스로 올린다.
+# v* 태그를 푸시하면 Windows exe 를 빌드해 릴리스로 올린다.
 on:
   push:
     tags:
-      - "livecaption-v*"
+      - "v*"
   workflow_dispatch: {}
 
 permissions:
